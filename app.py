@@ -84,7 +84,6 @@ if menu == "1. Registrar Transacción (Calle)":
             es_primer_pago = st.selectbox("¿Es el primer pago que realiza este adquirente?", ["No (Cuota subsiguiente)", "Sí (Primer pago / Venta)"])
             
         with col2:
-            # Lista de promotores / cobradores (Incluyendo miembros de comisión etiquetados)
             lista_vendedores = [
                 "JORGE SANCHEZ", "LUCIA RUBINO", "NESTOR ALCOBA", "AYELEN", "FABIAN QUIROGA",
                 "Sonia Coche (Comisión)", "Ofelia (Comisión)", "Sergio Ferraro (Comisión)", 
@@ -93,7 +92,6 @@ if menu == "1. Registrar Transacción (Calle)":
             vendedor = st.selectbox("Promotor / Cobrador", lista_vendedores)
             monto_cobrado = st.number_input("Monto Cobrado ($)", min_value=100.0, max_value=float(VALOR_TOTAL), step=500.0)
 
-        # Datos adicionales solo si es primer pago
         participante = ""
         telefono = ""
         if "Sí" in es_primer_pago:
@@ -116,7 +114,7 @@ if menu == "1. Registrar Transacción (Calle)":
                 execute_db(
                     "INSERT INTO transacciones (timestamp, numero_rifa, es_primer_pago, participante, telefono, monto, vendedor) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (timestamp, int(num_rifa), is_first, participante.upper(), telefono, float(monto_cobrado), vendedor)
-                 खातों = True
+                )
                 st.success(f"✅ ¡Transacción registrada con éxito para la Rifa N° {num_rifa}!")
 
 # ==========================================
@@ -130,14 +128,12 @@ elif menu == "2. Estado de Cartones y Auditoría":
     if df_tx.empty:
         st.info("Aún no hay transacciones registradas.")
     else:
-        # Consolidar por Rifa
         rifas_unicas = sorted(df_tx['numero_rifa'].unique())
         resumen_rifas = []
         
         for r in rifas_unicas:
             df_r = df_tx[df_tx['numero_rifa'] == r]
             
-            # Obtener datos del primer pago
             df_first = df_r[df_r['es_primer_pago'] == 'SI']
             part = df_first['participante'].iloc[0] if not df_first.empty else "SIN REGISTRO DE DUEÑO"
             tel = df_first['telefono'].iloc[0] if not df_first.empty else ""
@@ -146,7 +142,6 @@ elif menu == "2. Estado de Cartones y Auditoría":
             total_pagado = df_r['monto'].sum()
             saldo_pendiente = max(0, VALOR_TOTAL - total_pagado)
             
-            # Estado
             if total_pagado >= VALOR_TOTAL:
                 estado = "PAGADO"
             elif total_pagado > 0:
@@ -154,14 +149,10 @@ elif menu == "2. Estado de Cartones y Auditoría":
             else:
                 estado = "PENDIENTE"
                 
-            # Obsequio 2 cuotas (Pagó >= 8000 en el primer pago exacto)
             primer_monto = df_first['monto'].sum() if not df_first.empty else 0
             obsequio_2c = "SI" if not df_first.empty and primer_monto >= (VALOR_CUOTA * 2) else "NO"
-            
-            # Obsequio Contado
             obsequio_contado = "SI" if total_pagado >= VALOR_TOTAL and not df_first.empty and primer_monto >= VALOR_TOTAL else "NO"
 
-            # Auditoría / Alertas
             cant_primer_pago = len(df_first)
             if cant_primer_pago > 1:
                 alerta = "⚠️ ALERTA: DOBLE VENTA"
@@ -187,7 +178,6 @@ elif menu == "2. Estado de Cartones y Auditoría":
             
         df_resumen = pd.DataFrame(resumen_rifas)
         
-        # Filtro de alertas
         filtro_alerta = st.selectbox("Filtrar por Estado de Auditoría", ["Todos", "Solo con Alertas", "OK"])
         if filtro_alerta == "Solo con Alertas":
             df_resumen = df_resumen[df_resumen['Auditoría'] != "OK"]
@@ -205,10 +195,6 @@ elif menu == "3. Liquidación Vendedores":
 
     df_tx = run_query("SELECT * FROM transacciones")
     if not df_tx.empty:
-        # Calcular columnas auxiliares para cada transacción
-        # Base Venta (10%): min(monto, 4000) si es primer pago, sino 0
-        # Base Cuotas (20%): max(0, monto - 4000) si es primer pago, sino monto
-        
         def calc_bases(row):
             if row['es_primer_pago'] == 'SI':
                 v = min(row['monto'], VALOR_CUOTA)
@@ -220,7 +206,6 @@ elif menu == "3. Liquidación Vendedores":
 
         df_tx[['base_venta', 'base_cuotas']] = df_tx.apply(calc_bases, axis=1)
         
-        # Agrupar por vendedor
         vendedores_unicos = df_tx['vendedor'].unique()
         liquidaciones = []
         
@@ -229,15 +214,13 @@ elif menu == "3. Liquidación Vendedores":
             rifas_vendidas = len(df_v[df_v['es_primer_pago'] == 'SI'])
             total_recaudado = df_v['monto'].sum()
             
-            # Si es de la comisión, comisiones = 0
             es_comision = "(Comisión)" in v
             
             if es_comision:
                 comision_venta = 0.0
                 comision_cobranza = 0.0
             else:
-                # Comision venta: 10% del total de la rifa (es decir, $4000 por cada base de venta recolectada)
-                comision_venta = df_v['base_venta'].sum() * (COMISION_VENTA_PCT * 10) # 10% de 40000 = 4000
+                comision_venta = df_v['base_venta'].sum() * (COMISION_VENTA_PCT * 10)
                 comision_cobranza = df_v['base_cuotas'].sum() * COMISION_COBRANZA_PCT
                 
             total_comisiones = comision_venta + comision_cobranza
@@ -306,8 +289,6 @@ elif menu == "4. Caja y Rendiciones":
                     comisiones = cv + cc
                     
                 deuda_total = total_historico - comisiones
-                
-                # Entregas previas
                 entregas_previas = df_rend[df_rend['cobrador'] == v]['monto_rendido'].sum() if not df_rend.empty else 0.0
                 saldo_hoy = deuda_total - entregas_previas
                 
@@ -351,11 +332,9 @@ elif menu == "5. Sorteos (Ganadores)":
                 primer_monto = df_first['monto'].sum()
                 total_pagado = df_r['monto'].sum()
                 
-                # Regla 2 cuotas: Pagó >= 8000 en el primer pago
                 if primer_monto >= (VALOR_CUOTA * 2):
                     aptos_2c.append({"N° Rifa": r, "Participante": part, "Teléfono": tel})
                     
-                # Regla Contado: Pagó el total de 40000 de contado en el primer pago
                 if total_pagado >= VALOR_TOTAL and primer_monto >= VALOR_TOTAL:
                     aptos_contado.append({"N° Rifa": r, "Participante": part, "Teléfono": tel})
                     
